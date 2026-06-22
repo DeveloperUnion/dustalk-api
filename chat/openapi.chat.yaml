@@ -1,0 +1,513 @@
+# DustalkChat（チャット UI）→ Dustalk 本体の連携 API 契約。
+# 手動管理。PhoneAgent（電話）経路の契約は同ディレクトリの openapi.yaml（自動生成）。
+# 両者は同一ドメイン（回収申し込み）の別表現で、将来は単一契約への収斂を想定（下記 info 参照）。
+openapi: 3.0.3
+info:
+  title: Dustalk 連携 API（チャット ⇄ Dustalk 本体）
+  version: 0.1.0-draft
+  description: |
+    DustalkChat（チャット UI）が Dustalk 本体に対して
+    **顧客データを取得**し、**申し込み依頼を送信**するための REST API 契約。
+
+    ## ⚠️ 暫定（draft）について
+    Dustalk 本体側の DB・永続化形式・認証方式はまだ確定していない。
+    本書の **エンドポイント / レスポンス（顧客マスタ・受付ID 等）は暫定**であり、
+    Dustalk 側の設計が固まり次第更新する。
+
+    一方、**リクエストボディ（申し込み依頼）の入力スキーマは確定度が高い**。
+    これは DustalkChat が実際に収集するデータ形
+    （`DustalkChat/dustalk-chat/src/lib/slots/types.ts` の `Slots` 型、
+    検証は `src/lib/slots/schema.ts`）を起点に 1:1 で写したものだから。
+
+    ## PhoneAgent 契約との関係 / 将来統合メモ
+    電話経路の契約は同ディレクトリの **`openapi.yaml`（PhoneAgent から自動生成）**。
+    本書の `ApplicationRequest`（チャット由来 = Slots ベース）と、その `SpotIntake` /
+    `Applicant` / `Item` は **同一ドメイン（回収申し込み）の別表現**。
+    チャット側の方が情報量が多い（品目ごとの依頼先・希望時間帯・構造化住所など）。
+    両経路を将来は単一の申し込み契約に収斂させる前提で、対応関係を各スキーマの
+    description に注記している。
+
+servers:
+  - url: https://api.dustalk.example.com
+    description: 暫定（本番 URL 未確定）
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: customers
+    description: 顧客データの照会
+  - name: applications
+    description: 申し込み依頼の送信
+
+paths:
+  /customers/lookup:
+    get:
+      tags: [customers]
+      summary: 顧客データ取得（電話番号で照会）
+      description: |
+        電話番号をキーに既存顧客を照会する。受付開始時にフォームをプレフィルする用途。
+        暫定実装は `./data-models.md` の `CustomerRecord`（S3 簡易顧客マスタ）に対応し、
+        将来 Dustalk 顧客 API に置換される。PhoneAgent 契約の `GET /customers/{phone}`
+        （`LookupResult` を返す）と同一の顧客マスタを参照する想定。
+      operationId: lookupCustomer
+      parameters:
+        - name: phone
+          in: query
+          required: true
+          description: 連絡先電話番号（E.164、例 +819012345678）
+          schema:
+            type: string
+            example: "+819012345678"
+      responses:
+        "200":
+          description: 該当顧客が見つかった
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Customer"
+              examples:
+                business:
+                  summary: 既存の事業者顧客
+                  value:
+                    phone: "+819012345678"
+                    customerType: business
+                    name: 山田太郎
+                    company: 株式会社サンプル
+                    storeName: サンプル鹿嶋店
+                    address: 茨城県鹿嶋市宮中1-1-1 サンプルビル2F
+                    firstSeenAt: "2026-01-10T02:30:00Z"
+                    lastSeenAt: "2026-06-01T05:12:00Z"
+                    intakeCount: 4
+        "404":
+          description: 未登録（新規顧客として扱う）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                notFound:
+                  value:
+                    code: not_found
+                    message: 指定の電話番号に該当する顧客は見つかりませんでした
+
+  /applications:
+    post:
+      tags: [applications]
+      summary: 申し込み依頼送信
+      description: |
+        チャットで収集した申し込み内容を Dustalk 本体へ送信する。
+        ボディは DustalkChat の `Slots` 型に対応（UI 制御フラグ `Slots.meta` は
+        ドメインデータではないため**送信対象外**）。
+        PhoneAgent 契約の `POST /intakes`（`SpotIntake`）に相当するが、本書の方が
+        品目ごとの依頼先・希望時間帯・構造化住所まで保持する。
+      operationId: submitApplication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApplicationRequest"
+            examples:
+              householdSpot:
+                summary: 個人スポット（民間事業者に回収依頼）
+                value:
+                  flow: household_spot
+                  location:
+                    address: 東京都渋谷区道玄坂1-2-3
+                    buildingKind: マンション・アパート
+                    floor: 3階
+                    parking: なし
+                    elevator: あり
+                    dischargeMode: 排出を希望
+                  items:
+                    - id: itm_1
+                      label: 冷蔵庫
+                      estimatedQuantity: 1台
+                      manufacturer: Panasonic
+                      yearOfManufacture: "2020"
+                      capacity: 300L
+                  providerAssignments:
+                    - itemId: itm_1
+                      provider: 民間事業者に依頼
+                      preferredDates:
+                        - date: "2026-06-25"
+                          timeSlot: 9-12時
+                        - date: "2026-06-26"
+                          timeSlot: 12-15時
+                        - date: "2026-06-27"
+                          timeSlot: 希望なし
+                  requester:
+                    contactName: 鈴木花子
+                    contactNameKana: スズキハナコ
+                    phone: "+819098765432"
+                    email: hanako@example.com
+              businessSpot:
+                summary: 事業者スポット
+                value:
+                  flow: business_spot
+                  occupation: ラーメン屋
+                  location:
+                    address: 東京都新宿区西新宿2-8-1
+                    storeName: サンプル新宿店
+                    buildingKind: ビル内テナント・事務所
+                    floor: 1階
+                    dischargeMode: 排出を希望
+                  items:
+                    - id: itm_1
+                      label: 段ボール
+                      industrialCategory: 紙くず
+                      estimatedQuantity: 10箱
+                  providerAssignments:
+                    - itemId: itm_1
+                      provider: 民間事業者に依頼
+                      preferredDates:
+                        - date: "2026-06-25"
+                          timeSlot: 9-12時
+                        - date: "2026-06-26"
+                          timeSlot: 9-12時
+                        - date: "2026-06-27"
+                          timeSlot: 9-12時
+                  requester:
+                    businessForm: 株式会社
+                    storeName: サンプル新宿店
+                    contactName: 田中一郎
+                    contactNameKana: タナカイチロウ
+                    phone: "+819011112222"
+                    email: tanaka@example.com
+              businessRecurring:
+                summary: 事業者定期（依頼先選択なし・品目に頻度/開始日）
+                value:
+                  flow: business_recurring
+                  occupation: カフェ
+                  location:
+                    address: 東京都港区六本木6-1-1
+                    storeName: サンプル六本木店
+                    buildingKind: 商業施設内
+                    floor: 2階
+                    dischargeMode: 排出を希望
+                  items:
+                    - id: itm_1
+                      label: 生ごみ
+                      industrialCategory: 動植物性残さ
+                      estimatedQuantity: 45L × 3袋/日
+                      frequency: 週3日
+                      startDate: "2026-07-01"
+                  providerAssignments: []
+                  requester:
+                    businessForm: 有限会社
+                    storeName: サンプル六本木店
+                    contactName: 佐藤次郎
+                    contactNameKana: サトウジロウ
+                    phone: "+819033334444"
+                    email: jiro@example.com
+      responses:
+        "201":
+          description: 受付成功（暫定レスポンス）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApplicationAccepted"
+              examples:
+                accepted:
+                  value:
+                    applicationId: app_01HZX...
+                    status: accepted
+                    receivedAt: "2026-06-22T03:45:00Z"
+        "400":
+          description: バリデーションエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                validation:
+                  value:
+                    code: validation_error
+                    message: requester.phone の形式が不正です
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: 暫定。認証方式は Dustalk 本体側で未確定。
+
+  schemas:
+    # ---- enum（src/lib/slots/types.ts と完全一致）----
+    FlowKind:
+      type: string
+      description: 申し込みフロー種別。
+      enum:
+        - household_spot
+        - business_spot
+        - business_recurring
+
+    BuildingKind:
+      type: string
+      description: 建物種別。前半が household 向け、中盤が business 向け、その他は共通。
+      enum:
+        - 戸建て
+        - マンション・アパート
+        - 倉庫
+        - 路面店・独立店舗
+        - ビル内テナント・事務所
+        - 商業施設内
+        - 工場・倉庫
+        - その他
+
+    YesNo:
+      type: string
+      enum: [あり, なし]
+
+    DischargeMode:
+      type: string
+      enum: [自分で排出, 排出を希望]
+
+    ProviderChoice:
+      type: string
+      description: 品目ごとの依頼先。`民間事業者に依頼` のときのみ希望回収日時を持つ。
+      enum:
+        - 無料引取
+        - 自治体に依頼
+        - 訪問買取
+        - ネット買取
+        - 民間事業者に依頼
+
+    BusinessForm:
+      type: string
+      enum: [個人事業主, 株式会社, 有限会社, その他法人]
+
+    TimeSlot:
+      type: string
+      enum: [希望なし, 9-12時, 12-15時, 15-18時]
+
+    # ---- 申し込みリクエスト（Slots ベース）----
+    ApplicationRequest:
+      type: object
+      description: |
+        申し込み依頼ボディ。`DustalkChat/.../src/lib/slots/types.ts` の `Slots` に対応。
+        `Slots.meta`（UI 通過記録フラグ）は送信しない。
+        PhoneAgent の `SpotIntake`（openapi.yaml）と同一ドメインの別表現。
+      required: [flow, location, items, providerAssignments, requester]
+      properties:
+        flow:
+          $ref: "#/components/schemas/FlowKind"
+        occupation:
+          type: string
+          description: 業態（自由表現。例 "ラーメン屋"）。事業者向けで料金予測の入力に使う。
+          example: ラーメン屋
+        location:
+          $ref: "#/components/schemas/Location"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Item"
+        providerAssignments:
+          type: array
+          description: 品目ごとの依頼先割当。事業者定期（business_recurring）では空配列。
+          items:
+            $ref: "#/components/schemas/ItemProviderAssignment"
+        requester:
+          $ref: "#/components/schemas/Requester"
+
+    Location:
+      type: object
+      description: 回収・排出場所。`LocationSlot` に対応。
+      properties:
+        address:
+          type: string
+          description: 住所（自由表現）。
+        addressComponents:
+          $ref: "#/components/schemas/AddressComponents"
+        storeName:
+          type: string
+          description: 店舗名・事業所名（事業者）。
+        buildingKind:
+          $ref: "#/components/schemas/BuildingKind"
+        floor:
+          type: string
+          description: 置き場の階。"1階" "2階" "4階以上" もしくは自由表現（"地下1階" 等）。
+        parking:
+          $ref: "#/components/schemas/YesNo"
+        elevator:
+          $ref: "#/components/schemas/YesNo"
+        dischargeMode:
+          $ref: "#/components/schemas/DischargeMode"
+        note:
+          type: string
+          description: 特記事項。
+
+    AddressComponents:
+      type: object
+      description: Google Places / Geocoding 由来の構造化住所。
+      properties:
+        postalCode: { type: string, description: "〒xxx-xxxx" }
+        prefecture: { type: string, description: 都道府県 }
+        city: { type: string, description: 市区町村 }
+        ward: { type: string, description: 区（政令指定都市） }
+        town: { type: string, description: 町名 }
+        block: { type: string, description: 番地 }
+        building: { type: string, description: 建物名・部屋番号 }
+        placeId: { type: string, description: Google Place ID }
+        lat: { type: number }
+        lng: { type: number }
+
+    Item:
+      type: object
+      description: 回収品目 1 件。`Item` 型に対応（PhoneAgent の `Item` とも対応関係あり）。
+      required: [id, label]
+      properties:
+        id:
+          type: string
+          description: 品目の一意識別子（UI 側で採番。providerAssignments から参照）。
+        label:
+          type: string
+          description: 品目内容（自由表現。例 "冷蔵庫"）。PhoneAgent `Item.name` に対応。
+        industrialCategory:
+          type: string
+          description: 産廃20分類のいずれか（事業者のみ）。語彙は ./glossary.md 参照。
+        estimatedQuantity:
+          type: string
+          description: 数量（自由表現。例 "45L × 3袋/日"）。
+        frequency:
+          type: string
+          description: 回収頻度（定期回収のみ。例 "毎週木曜" "週3日"）。
+        startDate:
+          type: string
+          format: date
+          description: 開始希望日（定期回収のみ。YYYY-MM-DD、3 営業日以降）。
+        manufacturer:
+          type: string
+          description: メーカー名（無料引取候補の家電等）。
+        yearOfManufacture:
+          type: string
+          description: 製造年（自由表現可）。
+        capacity:
+          type: string
+          description: 容量（例 "300L" "8kg"）。
+
+    ItemProviderAssignment:
+      type: object
+      description: 品目ごとの依頼先割当。`ItemProviderAssignment` に対応。
+      required: [itemId]
+      properties:
+        itemId:
+          type: string
+          description: 対象品目の id（Item.id への参照）。
+        provider:
+          $ref: "#/components/schemas/ProviderChoice"
+        preferredDates:
+          type: array
+          description: 希望回収日時。`民間事業者に依頼` のとき 3 営業日以降で 3 つ。
+          items:
+            $ref: "#/components/schemas/PreferredDate"
+
+    PreferredDate:
+      type: object
+      required: [date, timeSlot]
+      properties:
+        date:
+          type: string
+          format: date
+          description: 希望日（YYYY-MM-DD）。
+        timeSlot:
+          $ref: "#/components/schemas/TimeSlot"
+
+    Requester:
+      type: object
+      description: |
+        申込者情報。`RequesterSlot` に対応。PhoneAgent の `Applicant` に相当。
+        事業者フローでは businessForm が必須。phone は E.164 または日本国内 10-11 桁
+        （検証は src/lib/slots/schema.ts の PhoneSchema 準拠）。
+      properties:
+        businessForm:
+          $ref: "#/components/schemas/BusinessForm"
+        storeName:
+          type: string
+          description: 屋号（事業者）。
+        businessName:
+          type: string
+          description: 法人名（事業者）。
+        businessNameKana:
+          type: string
+          description: 法人名カナ（事業者）。
+        contactName:
+          type: string
+          description: 連絡先氏名。
+        contactNameKana:
+          type: string
+          description: 連絡先氏名カナ。
+        phone:
+          type: string
+          description: 連絡先電話（E.164 推奨。例 +819012345678）。
+          example: "+819012345678"
+        email:
+          type: string
+          format: email
+
+    # ---- レスポンス（暫定）----
+    Customer:
+      type: object
+      description: 顧客照会結果。./data-models.md の `CustomerRecord` に対応（暫定）。
+      required: [phone, customerType, firstSeenAt, lastSeenAt]
+      properties:
+        phone:
+          type: string
+          description: 連絡先電話番号（E.164）。
+        customerType:
+          type: string
+          enum: [individual, business]
+          description: お客様区分（個人 / 事業者）。
+        name:
+          type: string
+          description: 氏名 / 担当者名。
+        company:
+          type: string
+          description: 会社名（事業者）。
+        storeName:
+          type: string
+          description: 店舗名（事業者）。
+        address:
+          type: string
+          description: 登録住所。
+        firstSeenAt:
+          type: string
+          format: date-time
+          description: 初回受付日時（ISO8601, UTC）。
+        lastSeenAt:
+          type: string
+          format: date-time
+          description: 最終受付日時（ISO8601, UTC）。
+        intakeCount:
+          type: integer
+          description: 累計受付回数。
+
+    ApplicationAccepted:
+      type: object
+      description: 申し込み受付成功レスポンス（暫定）。openapi.yaml の `IntakeAccepted` に相当。
+      required: [applicationId, receivedAt]
+      properties:
+        applicationId:
+          type: string
+          description: 採番された申し込み/受付 ID。
+        status:
+          type: string
+          description: 受付状態（暫定。accepted / pending 等）。
+          example: accepted
+        receivedAt:
+          type: string
+          format: date-time
+          description: 受付確定日時（ISO8601, UTC）。
+
+    Error:
+      type: object
+      description: エラーレスポンス共通 body（暫定）。openapi.yaml の `ApiError` に対応。
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: エラーコード（例 not_found, validation_error）。
+        message:
+          type: string
+          description: 人が読めるエラーメッセージ。

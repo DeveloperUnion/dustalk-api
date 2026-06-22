@@ -1,0 +1,81 @@
+# paths は scripts/gen_api_models.py 内でハンドメンテ (Pydantic から導出不可)。
+# スキーマ参照は ../components/schemas.yaml を指す。
+get:
+  operationId: lookupCustomer
+  summary: 電話番号による顧客照会
+  description: 'PhoneAgent の look_up に対応。発信者番号/復唱確認した番号で顧客を照会する。 見つからない場合は found=false。(暫定: 定期スケジュール情報の同梱は未確定)'
+  tags:
+  - customer
+  parameters:
+  - &id001
+    name: phone
+    in: path
+    required: true
+    description: '連絡先電話番号 (E.164、例: +819012345678)'
+    schema:
+      type: string
+  responses:
+    '200':
+      description: 照会結果
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/LookupResult
+    '400':
+      description: リクエスト不正 (検証エラー)
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '401':
+      description: 認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '500':
+      description: サーバエラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+put:
+  operationId: upsertCustomer
+  summary: 顧客マスタの作成/更新 (受付後の同期)
+  description: 'PhoneAgent の upsert_customer に対応。受付完了後に顧客情報を同期する。 (暫定: Dustalk 側 intake ハンドラが自動 upsert
+    する設計も検討余地)'
+  tags:
+  - customer
+  parameters:
+  - *id001
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas.yaml#/CustomerRecord
+  responses:
+    '200':
+      description: 更新後の顧客
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/CustomerRecord
+    '400':
+      description: リクエスト不正 (検証エラー)
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '401':
+      description: 認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '500':
+      description: サーバエラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError

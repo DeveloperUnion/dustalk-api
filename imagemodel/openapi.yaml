@@ -1,0 +1,222 @@
+# ImageModel（画像認識モデル）の API 契約。手動管理。
+# 本体: ../../ImageModel/image-model（FastAPI / AWS App Runner）。
+# DustalkChat はブラウザ→Next.js プロキシ（/api/detect）→本 API の順で呼ぶ。
+openapi: 3.0.3
+info:
+  title: ImageModel API（画像物体検出）
+  version: 1.0.0
+  description: |
+    画像から回収対象品目を検出し、品目名・構造化属性（型番/メーカー/年式/容量）・
+    バウンディングボックス（画像に対する % 座標）を返す REST API。
+
+    内部は Google Gemini（primary: gemini-3.1-flash-lite / fallback: gemini-2.5-flash-lite）。
+    本体実装は `ImageModel/image-model`（FastAPI, Python 3.12, port 8080）。
+
+    ## 呼び出し経路
+    ブラウザからは CORS 制約のため直接叩かず、DustalkChat の Next.js プロキシ
+    （`src/app/api/detect/route.ts`、`POST /api/detect`）経由で本 API を呼ぶ。
+    クライアント型は `DustalkChat/.../src/lib/imageModel.ts`。
+    ※ 検出結果の `attributes` 文字列パースは `src/lib/imageDetectionParser.ts`。
+
+    ## ⚠️ クライアント型との差分（既知）
+    `src/lib/imageModel.ts` の `DetectResponse` / `DetectedItem` は現状
+    **`attributes` と トップレベル `model` を型に含めていない**（実 API は返す）。
+    本書が実 API の正。クライアント型は将来追従させる想定。
+
+servers:
+  - url: https://jvxqvfx3pv.ap-northeast-1.awsapprunner.com
+    description: Production（AWS App Runner, ap-northeast-1）
+
+# 認証なし（パブリック）。サーバ側 CORS で許可 Origin を制限する。
+security: []
+
+paths:
+  /api/detect:
+    post:
+      summary: 画像から品目を検出
+      description: |
+        画像 1 枚を受け取り、検出した品目のリストを返す。
+        無料引取候補カテゴリ（家電・自転車等）では型番/メーカー/年式/容量を抽出する。
+        認証なし（パブリック）。ただしサーバ側 CORS で許可 Origin が制限される。
+      operationId: detect
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: |
+                    検出対象の画像ファイル。
+                    対応形式: image/jpeg, image/png, image/gif, image/webp。最大 10MB。
+      responses:
+        "200":
+          description: 検出成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DetectResponse"
+              examples:
+                refrigerator:
+                  summary: 冷蔵庫（無料引取候補・属性あり）
+                  value:
+                    items:
+                      - id: 0
+                        name: 冷蔵庫
+                        info: "型番。説明,メーカー:Panasonic,年式:2020,容量:300L"
+                        attributes:
+                          modelNumber: NR-F500A
+                          manufacturer: Panasonic
+                          yearOfManufacture: "2020"
+                          capacity: 300L
+                          description: フレンチドア型、シルバー
+                        color: "#e74c3c"
+                        bbox:
+                          x: 15.5
+                          y: 20.3
+                          width: 45.2
+                          height: 60.8
+                    model: gemini-3.1-flash-lite
+                nonAppliance:
+                  summary: 家具など（属性は空文字）
+                  value:
+                    items:
+                      - id: 0
+                        name: ソファ
+                        info: "説明:3人掛け、グレー"
+                        attributes:
+                          modelNumber: ""
+                          manufacturer: ""
+                          yearOfManufacture: ""
+                          capacity: ""
+                          description: 3人掛け、グレー
+                        color: "#3498db"
+                        bbox:
+                          x: 5.0
+                          y: 40.0
+                          width: 70.0
+                          height: 35.0
+                    model: gemini-3.1-flash-lite
+        "400":
+          description: 非対応のファイル形式、またはサイズ超過（10MB）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                unsupportedType:
+                  value:
+                    detail: "Unsupported file type: application/pdf"
+                tooLarge:
+                  value:
+                    detail: File too large (max 10MB)
+        "503":
+          description: Gemini API が一時的に利用できない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                upstream:
+                  value:
+                    detail: Gemini API が一時的に利用できません。しばらくして再度お試しください。
+
+components:
+  schemas:
+    DetectResponse:
+      type: object
+      required: [items, model]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DetectedItem"
+        model:
+          type: string
+          description: 推論に使用したモデル名。
+          enum:
+            - gemini-3.1-flash-lite
+            - gemini-2.5-flash-lite
+
+    DetectedItem:
+      type: object
+      description: 検出された品目 1 件。DustalkChat の `DetectedItem`（imageModel.ts）に対応。
+      required: [id, name, info, attributes, color, bbox]
+      properties:
+        id:
+          type: integer
+          description: 検出順の ID（0 始まり）。
+        name:
+          type: string
+          description: カテゴリ名のみ（例 "冷蔵庫"）。型番・メーカーは含まない。
+        info:
+          type: string
+          description: |
+            構造化属性を1行に連結した文字列（区切り: カンマ/セミコロン/改行）。
+            DustalkChat 側は `imageDetectionParser.ts` でこれを解析する。
+        attributes:
+          $ref: "#/components/schemas/DetectedAttributes"
+        color:
+          type: string
+          description: 可視化用カラーコード（例 "#e74c3c"）。サーバ側のローテーション配列から付与。
+        bbox:
+          $ref: "#/components/schemas/BBox"
+
+    DetectedAttributes:
+      type: object
+      description: |
+        抽出された構造化属性。読み取れない/確信がない場合は空文字（推測しない）。
+        manufacturer / yearOfManufacture / capacity は**無料引取候補カテゴリのみ**埋まる
+        （冷蔵庫・冷凍庫・洗濯機・乾燥機・エアコン・テレビ・電子レンジ・オーブンレンジ・
+        自転車・電動アシスト・バイク・スクーター）。他カテゴリでは常に空文字。
+      required: [modelNumber, manufacturer, yearOfManufacture, capacity, description]
+      properties:
+        modelNumber:
+          type: string
+          description: 銘板から読み取れる型番（全カテゴリ対象）。読取不可は空文字。
+        manufacturer:
+          type: string
+          description: メーカー名（無料引取候補カテゴリのみ）。
+        yearOfManufacture:
+          type: string
+          description: 製造年式（無料引取候補カテゴリのみ）。
+        capacity:
+          type: string
+          description: |
+            容量（無料引取候補カテゴリのみ、単位はカテゴリ別）。
+            冷蔵庫/冷凍庫/電子レンジ/オーブンレンジ=L、洗濯機/乾燥機=kg、
+            エアコン=畳数、テレビ=型/インチ、自転車・バイク類=なし。
+        description:
+          type: string
+          description: 形状・用途の説明のみ（型番・メーカー・年式は含まない）。
+
+    BBox:
+      type: object
+      description: バウンディングボックス。画像の幅/高さに対する % 座標（0–100、小数第1位）。
+      required: [x, y, width, height]
+      properties:
+        x:
+          type: number
+          description: 左上 X（画像幅に対する %）。
+        y:
+          type: number
+          description: 左上 Y（画像高さに対する %）。
+        width:
+          type: number
+          description: 幅（%）。
+        height:
+          type: number
+          description: 高さ（%）。
+
+    Error:
+      type: object
+      description: FastAPI 標準のエラー body。
+      required: [detail]
+      properties:
+        detail:
+          type: string
+          description: 人が読めるエラーメッセージ。

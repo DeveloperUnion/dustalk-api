@@ -1,0 +1,39 @@
+# paths は scripts/gen_api_models.py 内でハンドメンテ (Pydantic から導出不可)。
+# スキーマ参照は ../components/schemas.yaml を指す。
+post:
+  operationId: submitIntake
+  summary: 新規スポット/定期回収の受付 (見積もり依頼)
+  description: 'PhoneAgent の submit_intake に対応。SpotIntake を受け取り受付IDを返す。 (暫定: エンドポイント名・採番・見積もり返却の有無は未確定)'
+  tags:
+  - intake
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas.yaml#/SpotIntake
+  responses:
+    '201':
+      description: 受付完了
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/IntakeAccepted
+    '400':
+      description: リクエスト不正 (検証エラー)
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '401':
+      description: 認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '500':
+      description: サーバエラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError

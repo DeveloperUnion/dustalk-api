@@ -1,0 +1,61 @@
+name: Pages
+
+# 各サービスの OpenAPI (phone / chat / imagemodel) を Redoc でビルドし
+# GitHub Pages に公開する。
+# 公開URL: https://developerunion.github.io/dustalk-api/
+#
+# 初回のみリポジトリ設定が必要:
+#   Settings → Pages → Source = "GitHub Actions"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx -y @redocly/cli@latest lint
+
+  build-and-deploy:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Redoc docs
+        run: |
+          mkdir -p site/phone site/chat site/imagemodel
+          npx -y @redocly/cli@latest build-docs phone@v1      -o site/phone/index.html
+          npx -y @redocly/cli@latest build-docs chat@v1       -o site/chat/index.html
+          npx -y @redocly/cli@latest build-docs imagemodel@v1 -o site/imagemodel/index.html
+          cat > site/index.html <<'HTML'
+          <!doctype html><meta charset="utf-8">
+          <title>Dustalk 連携 API</title>
+          <h1>Dustalk 連携 API ドキュメント</h1>
+          <ul>
+            <li><a href="./phone/">電話経路 (PhoneAgent → Dustalk・暫定)</a></li>
+            <li><a href="./chat/">チャット経路 (DustalkChat → Dustalk・暫定)</a></li>
+            <li><a href="./imagemodel/">ImageModel (DustalkChat → 画像認識・実装済)</a></li>
+          </ul>
+          HTML
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

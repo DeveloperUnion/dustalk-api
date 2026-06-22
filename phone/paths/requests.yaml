@@ -1,0 +1,39 @@
+# paths は scripts/gen_api_models.py 内でハンドメンテ (Pydantic から導出不可)。
+# スキーマ参照は ../components/schemas.yaml を指す。
+post:
+  operationId: submitRequest
+  summary: 変更/問い合わせリクエストの記録
+  description: PhoneAgent の submit_request に対応。スポット変更・定期変更・問い合わせ等を ChangeRequest として記録し受付IDを返す。(暫定)
+  tags:
+  - request
+  requestBody:
+    required: true
+    content:
+      application/json:
+        schema:
+          $ref: ../components/schemas.yaml#/ChangeRequest
+  responses:
+    '201':
+      description: 受付完了
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/RequestAccepted
+    '400':
+      description: リクエスト不正 (検証エラー)
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '401':
+      description: 認証エラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError
+    '500':
+      description: サーバエラー
+      content:
+        application/json:
+          schema:
+            $ref: ../components/schemas.yaml#/ApiError

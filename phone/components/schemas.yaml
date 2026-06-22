@@ -1,0 +1,460 @@
+# このファイルは PhoneAgent の server/models.py から自動生成されています
+# (python -m scripts.gen_api_models)。手動編集は次回生成で上書きされます。
+ApiError:
+  description: エラーレスポンス共通 body (暫定)。
+  properties:
+    code:
+      description: 'エラーコード (例: not_found, validation_error)'
+      title: Code
+      type: string
+    message:
+      description: 人が読めるエラーメッセージ
+      title: Message
+      type: string
+  required:
+  - code
+  - message
+  title: ApiError
+  type: object
+Applicant:
+  description: 申込者情報。個人=氏名 / 事業者=会社名+店舗名。住所は回収場所。
+  properties:
+    customer_type:
+      $ref: '#/CustomerType'
+      description: 個人=individual / 事業者=business
+    name:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 氏名 (個人) / 担当者名 (事業者・任意)
+      title: Name
+    company:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 会社名 (事業者のみ)
+      title: Company
+    store_name:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 店舗名 (事業者のみ)
+      title: Store Name
+    phone:
+      description: '連絡先電話番号 (E.164、例: +819012345678)'
+      title: Phone
+      type: string
+    address:
+      description: 回収場所のご住所 (都道府県から建物名・部屋番号まで)
+      title: Address
+      type: string
+  required:
+  - customer_type
+  - phone
+  - address
+  title: Applicant
+  type: object
+CallMeta:
+  description: 通話メタ情報 (全リクエスト共通)。
+  properties:
+    call_sid:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 通話 ID (LiveKit room 名)
+      title: Call Sid
+    caller_phone:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 発信者番号 (E.164)
+      title: Caller Phone
+    is_new_customer:
+      anyOf:
+      - type: boolean
+      - type: 'null'
+      default: null
+      description: 新規=True / 既存=False
+      title: Is New Customer
+    received_at:
+      description: 受付日時 (ISO8601, UTC)
+      title: Received At
+      type: string
+  required:
+  - received_at
+  title: CallMeta
+  type: object
+ChangeRequest:
+  description: スポット回収変更 / 定期回収変更 / 問い合わせ等の記録リクエスト。
+  properties:
+    request_type:
+      $ref: '#/RequestType'
+      description: リクエスト種別
+    change_kind:
+      anyOf:
+      - $ref: '#/RecurringChangeKind'
+      - type: 'null'
+      default: null
+      description: 定期変更の内訳 (recurring_change のとき)
+    summary:
+      description: 人が見て分かる 1 行要約
+      title: Summary
+      type: string
+    details:
+      description: 会話で得た自由記述 (対象・内容・理由など)
+      title: Details
+      type: string
+    company:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 会社名 (事業者)
+      title: Company
+    name:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 氏名 / 担当者名
+      title: Name
+    phone:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 連絡先 (未指定なら発信者番号)
+      title: Phone
+    customer_type:
+      anyOf:
+      - $ref: '#/CustomerType'
+      - type: 'null'
+      default: null
+      description: お客様区分
+    meta:
+      $ref: '#/CallMeta'
+      description: 通話メタ情報
+  required:
+  - request_type
+  - summary
+  - details
+  - meta
+  title: ChangeRequest
+  type: object
+CustomerRecord:
+  description: 簡易顧客マスタ (S3) / 照会結果の customer。将来 Dustalk 顧客 API に置換。
+  properties:
+    phone:
+      description: 連絡先電話番号 (E.164)
+      title: Phone
+      type: string
+    customer_type:
+      $ref: '#/CustomerType'
+      description: お客様区分
+    name:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 氏名 / 担当者名
+      title: Name
+    company:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 会社名 (事業者)
+      title: Company
+    store_name:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 店舗名 (事業者)
+      title: Store Name
+    address:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 登録住所
+      title: Address
+    first_seen_at:
+      description: 初回受付日時 (ISO8601, UTC)
+      title: First Seen At
+      type: string
+    last_seen_at:
+      description: 最終受付日時 (ISO8601, UTC)
+      title: Last Seen At
+      type: string
+    intake_count:
+      default: 0
+      description: 累計受付回数
+      title: Intake Count
+      type: integer
+    call_history:
+      description: 通話 ID 履歴
+      items:
+        type: string
+      title: Call History
+      type: array
+  required:
+  - phone
+  - customer_type
+  - first_seen_at
+  - last_seen_at
+  title: CustomerRecord
+  type: object
+CustomerType:
+  description: お客様区分。
+  enum:
+  - individual
+  - business
+  title: CustomerType
+  type: string
+IntakeAccepted:
+  description: POST /intakes 成功時のレスポンス (暫定)。受付IDと状態を返す。
+  properties:
+    intake_id:
+      description: 採番された受付/見積もりID
+      title: Intake Id
+      type: string
+    status:
+      default: accepted
+      description: '受付状態 (暫定: accepted / pending 等)'
+      title: Status
+      type: string
+    received_at:
+      description: 受付確定日時 (ISO8601, UTC)
+      title: Received At
+      type: string
+    estimated_cost:
+      anyOf:
+      - type: integer
+      - type: 'null'
+      default: null
+      description: 概算見積もり金額 (円・確定後に返す想定・任意)
+      title: Estimated Cost
+    proposed_dates:
+      description: 確定/提案された回収日 (YYYY-MM-DD・任意)
+      items:
+        type: string
+      title: Proposed Dates
+      type: array
+  required:
+  - intake_id
+  - received_at
+  title: IntakeAccepted
+  type: object
+Item:
+  description: 回収品目 1 件。
+  properties:
+    name:
+      description: '品目名 (例: 冷蔵庫, 学習机)'
+      title: Name
+      type: string
+    quantity:
+      default: '1'
+      description: '個数・数量 (自由記述可。例: 1台, 2個)'
+      title: Quantity
+      type: string
+    note:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 補足 (サイズ・状態など)
+      title: Note
+  required:
+  - name
+  title: Item
+  type: object
+LookupResult:
+  description: look_up ツールの戻り値 (顧客照会の結果)。
+  properties:
+    found:
+      description: 該当顧客が見つかったか
+      title: Found
+      type: boolean
+    customer:
+      anyOf:
+      - $ref: '#/CustomerRecord'
+      - type: 'null'
+      default: null
+      description: 見つかった顧客情報
+  required:
+  - found
+  title: LookupResult
+  type: object
+RecurringChangeKind:
+  description: 定期回収変更の内訳 (request_type=recurring_change のとき)。
+  enum:
+  - skip
+  - frequency
+  - start_date
+  - add_store
+  - remove_store
+  - pause
+  - cancel
+  title: RecurringChangeKind
+  type: string
+RecurringPlan:
+  description: 定期回収の新規申し込み内容 (service_type=recurring のとき)。
+  properties:
+    frequency:
+      description: '回収頻度 (例: 毎週, 隔週, 毎月)'
+      title: Frequency
+      type: string
+    weekday:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 希望曜日 (任意)
+      title: Weekday
+    start_period:
+      description: '開始希望時期・期間 (例: 来月初旬から, 半年間)'
+      title: Start Period
+      type: string
+    waste_items:
+      description: 常時出るごみ (品目カテゴリ × 量のリスト)
+      items:
+        $ref: '#/RecurringWasteItem'
+      title: Waste Items
+      type: array
+  required:
+  - frequency
+  - start_period
+  title: RecurringPlan
+  type: object
+RecurringWasteItem:
+  description: 定期回収で常時出るごみ 1 種 (品目カテゴリと量を分離して保持)。
+  properties:
+    category:
+      $ref: '#/WasteCategory'
+      description: 品目カテゴリ (固定リスト)
+    volume:
+      description: '1 回あたりの量 (自由記述。例: 20kg程度, ゴミ袋5袋)'
+      title: Volume
+      type: string
+    note:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 補足 (category=other の具体名・状態など)
+      title: Note
+  required:
+  - category
+  - volume
+  title: RecurringWasteItem
+  type: object
+RequestAccepted:
+  description: POST /requests 成功時のレスポンス (暫定)。変更/問い合わせの受付ID。
+  properties:
+    request_id:
+      description: 採番されたリクエストID
+      title: Request Id
+      type: string
+    status:
+      default: accepted
+      description: 受付状態 (暫定)
+      title: Status
+      type: string
+    received_at:
+      description: 受付確定日時 (ISO8601, UTC)
+      title: Received At
+      type: string
+  required:
+  - request_id
+  - received_at
+  title: RequestAccepted
+  type: object
+RequestType:
+  description: 新規スポット回収以外の「リクエスト」種別。
+  enum:
+  - order_change
+  - recurring_change
+  - inquiry
+  - other
+  title: RequestType
+  type: string
+ServiceType:
+  description: 回収の種別。
+  enum:
+  - spot
+  - recurring
+  title: ServiceType
+  type: string
+SpotIntake:
+  description: 新規スポット回収 = Dustalk への見積もり依頼リクエストボディ。
+  properties:
+    applicant:
+      $ref: '#/Applicant'
+      description: 申込者情報
+    items:
+      description: 回収品目リスト (spot のとき。recurring は空)
+      items:
+        $ref: '#/Item'
+      title: Items
+      type: array
+    preferred_dates:
+      description: 回収希望日の候補 (spot のとき 3 営業日以降で 3 つ。YYYY-MM-DD)。recurring は空
+      items:
+        type: string
+      title: Preferred Dates
+      type: array
+    carry_out:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: 搬出経路 (お品物のある階・階段/エレベーター・車寄せ可否など)
+      title: Carry Out
+    service_type:
+      $ref: '#/ServiceType'
+      default: spot
+      description: 単発/定期
+    recurring_plan:
+      anyOf:
+      - $ref: '#/RecurringPlan'
+      - type: 'null'
+      default: null
+      description: 定期回収の申し込み内容 (recurring のときのみ)
+    notes:
+      anyOf:
+      - type: string
+      - type: 'null'
+      default: null
+      description: その他特記事項
+      title: Notes
+    meta:
+      $ref: '#/CallMeta'
+      description: 通話メタ情報
+  required:
+  - applicant
+  - meta
+  title: SpotIntake
+  type: object
+WasteCategory:
+  description: '定期回収で常時出るごみの品目カテゴリ (事業ごみ実務サブセット)。
+
+
+    産業廃棄物の法定分類すべては電話口では細かすぎるため、事業ごみで頻出の
+
+    代表的な品目に絞る。当てはまらないものは other (note に具体名)。'
+  enum:
+  - cardboard_paper
+  - waste_plastics
+  - food_waste
+  - wood
+  - metal
+  - glass_ceramic
+  - other
+  title: WasteCategory
+  type: string
